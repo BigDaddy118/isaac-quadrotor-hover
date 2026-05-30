@@ -83,17 +83,19 @@ python evaluate.py --sim_device cuda:0 --graphics_device_id -1 --ckpt checkpoint
 
 ## 项目结构
 
-```
-├── quadcopter_hover.py     # 主环境
-├── ppo_agent.py            # PPO 算法
-├── train.py                # 训练脚本
-├── evaluate.py             # 评估脚本
-├── test_gym.py             # Gym 冒烟测试
-├── requirements.txt        # Python 依赖
-├── cfg/
-│   └── task/
-│       └── QuadcopterHover.yaml
-├── tasks/
-│   └── quadcopter_hover.py # VecTask 变体实现
-└── assets/                 # 资产目录（占位）
+```mermaid
+graph TD
+    root[isaac-quadrotor-hover]
+    root --> qh[quadcopter_hover.py<br/>主环境]
+    root --> ppo[ppo_agent.py<br/>PPO 算法]
+    root --> train[train.py<br/>训练脚本]
+    root --> eval[evaluate.py<br/>评估脚本]
+    root --> test[test_gym.py<br/>Gym 冒烟测试]
+    root --> req[requirements.txt<br/>Python 依赖]
+    root --> cfg[cfg/]
+    cfg --> task[task/]
+    task --> yaml[QuadcopterHover.yaml]
+    root --> tasks[tasks/]
+    tasks --> vec[quadcopter_hover.py<br/>VecTask 变体]
+    root --> assets[assets/<br/>资产目录]
 ```
