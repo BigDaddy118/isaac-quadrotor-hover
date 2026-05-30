@@ -1,0 +1,13 @@
+name: QuadcopterHover
+env:
+  numEnvs: 4096
+  envSpacing: 2.0
+  maxEpisodeLength: 500
+  enableDebugVis: False
+
+task:
+  env:
+    observationType: "full"
+    actionSpace: "continuous"
+    numActions: 4
+    numObservations: 15
