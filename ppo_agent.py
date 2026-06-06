@@ -195,7 +195,7 @@ class PPO:
             "policy_loss": total_policy_loss / num_updates,
             "value_loss": total_value_loss / num_updates,
             "entropy": total_entropy / num_updates,
-            "approx_kl": (old_log_probs - new_log_probs).mean().abs().item(),
+            "approx_kl": (old_log_probs - self.model.evaluate(obs, actions)[0].detach()).mean().abs().item(),
         }
 
     def save(self, path):

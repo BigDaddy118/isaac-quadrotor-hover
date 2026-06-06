@@ -5,8 +5,6 @@ Usage: python evaluate.py --sim_device cuda:0 --graphics_device_id -1 [--ckpt ch
 
 import os
 import time
-import torch
-import numpy as np
 from isaacgym import gymutil
 
 from quadcopter_hover import (
@@ -14,6 +12,8 @@ from quadcopter_hover import (
     DISTURB_FORCE, DISTURB_DURATION, HOVER_THRESHOLD,
 )
 from ppo_agent import PPO
+import torch
+import numpy as np
 
 SIM_DT = 1.0 / 60.0
 
@@ -43,7 +43,12 @@ def evaluate(ckpt_path, headless=True):
     env = QuadcopterEnv(args)
 
     device = args.sim_device if "cuda" in str(args.sim_device) else "cpu"
-    agent = PPO(OBS_DIM, ACT_DIM, {}, device)
+    ppo_config = {
+        "lr": 3e-4, "gamma": 0.99, "lam": 0.95,
+        "clip_param": 0.2, "value_coef": 0.5, "entropy_coef": 0.01,
+        "max_grad_norm": 1.0, "num_epochs": 5, "batch_size": 256,
+    }
+    agent = PPO(OBS_DIM, ACT_DIM, ppo_config, device)
     agent.load(ckpt_path)
 
     target = TARGET_POS

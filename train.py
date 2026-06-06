@@ -5,13 +5,13 @@ Usage: python train.py --sim_device cuda:0 --graphics_device_id -1
 
 import os
 import time
-import torch
-import numpy as np
 from datetime import datetime
 
 from isaacgym import gymutil
 from quadcopter_hover import QuadcopterEnv, NUM_ENVS, OBS_DIM, ACT_DIM
 from ppo_agent import PPO, RolloutBuffer
+import torch
+import numpy as np
 
 CONFIG = {
     "lr": 3e-4,

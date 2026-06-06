@@ -100,7 +100,7 @@ graph TD
     root --> assets[assets/<br/>资产目录]
 ```
 
-## 当前状态（截至 2026-05-30）
+## 当前状态（截至 2026-06-06）
 
 ### 已完成
 - Isaac Gym 仿真环境搭建完毕，程序化几何体构建四旋翼模型
@@ -109,24 +109,29 @@ graph TD
 - 训练流程：自动日志（CSV）、定期 checkpoint
 - 评估流程：悬停精度、定向扰动恢复、随机扰动鲁棒性三项测试
 - 奖励函数已完善（位置 + 姿态 + 速度 + 角速度 + 动作惩罚 + 悬停奖励）
+- **已于 AutoDL（RTX 4090, 24GB）完成首轮训练**：1000 次迭代，FPS ≈ 3000
 
-### 待完成（给 AI 的后续任务）
+### Bug 修复（2026-06-06）
+1. **`train.py` 导入顺序** — `import torch` 必须在 `import isaacgym` 之后
+2. **`ppo_agent.py` approx_kl 张量尺寸不匹配** — `old_log_probs` (全量 N×T) 与 `new_log_probs` (单 batch) 维度不一致，改为全量评估
+3. **`evaluate.py` 导入顺序** — 同 train.py
+4. **`evaluate.py` PPO 初始化缺配置** — 空 `{}` 导致 `KeyError: 'lr'`，已补全
 
-1. **实际训练** — 当前只有代码框架，尚未在 GPU 服务器上跑完整训练。在有 Isaac Gym 的机器上执行 `python train.py --sim_device cuda:0 --graphics_device_id -1`，训练完成后模型保存至 `checkpoints/ppo_final.pt`
+### 首轮训练结果
+- 1000 次迭代后 reward 未收敛（维持在 -52），悬停 RMSE ≈ 0.95m，悬停成功率 0%
+- 模型未学会有效悬停，需调参和更多训练轮数
 
-2. **调参** — `train.py` 的 `CONFIG` 字典里所有超参数可调。关键参数：`total_iterations`（训练轮数）、`lr`（学习率）、`num_steps`（rollout 步数）、`num_envs`（并行环境数，4090 可开到 4096）
-
-3. **替换为真实 URDF 模型** — 当前四旋翼用 `create_box` / `create_capsule` 程序化搭建，可替换为 Crazyflie 等真实无人机 URDF，放入 `assets/` 目录，修改 `quadcopter_hover.py` 中的资产创建部分
-
-4. **接入 rl_games 库** — `tasks/quadcopter_hover.py` 是按 `isaacgymenvs` 的 `VecTask` 基类实现的环境变体，可配合官方 rl_games PPO 训练器使用（路径通常在 `/root/IsaacGymEnvs/rl_games`）
-
-5. **域随机化** — 对质量、惯量、推力系数等物理参数做随机化，为 Sim2Real 迁移做准备
-
-6. **录制视频** — 训练完成后用 evaluate 模式录制悬停和抗扰动视频
+### 待完成
+1. **调参 & 加长训练** — 建议 `total_iterations` 5000-10000、降低 `lr`、增大 `num_envs`（4090 可到 1024+）
+2. **替换真实 URDF** — 程序化几何体 → Crazyflie 等真实模型
+3. **接入 rl_games** — 使用 `tasks/quadcopter_hover.py` 配合官方 PPO 训练器
+4. **域随机化** — 质量/惯量/推力系数，为 Sim2Real 做准备
+5. **修复 evaluate.py 扰动测试** — `gymapi.CoordinateSpace.WORLD_SPACE` 在 Preview 4 中 API 名不同
+6. **录制视频**
 
 ### 服务器环境参考
-- 平台：AutoDL，镜像 PyTorch 2.0.0 + Python 3.8 + CUDA 11.8，GPU RTX 4090
-- Isaac Gym 安装路径：`/root/isaacgym/`，需手动 `pip install -e .`
-- isaacgymenvs（含 rl_games）：`/root/IsaacGymEnvs/`
-- NumPy 必须锁在 `1.23.5`，1.24+ 不兼容
-- 导入顺序：`import isaacgym` 必须在 `import torch` 之前
+- 平台：AutoDL，PyTorch 2.0.0 + Python 3.8 + CUDA 11.8，RTX 4090 (24GB)
+- Isaac Gym：`/root/isaacgym/`，isaacgymenvs：`/root/IsaacGymEnvs/`
+- Python：`/root/miniconda3/bin/python`（非交互 SSH 需完整路径 + `/root/miniconda3/bin/` 在 PATH 中）
+- NumPy 必须锁在 `1.23.5`
+- **`import isaacgym` 必须在 `import torch` 之前**
