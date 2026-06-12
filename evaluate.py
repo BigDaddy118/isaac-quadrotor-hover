@@ -1,13 +1,13 @@
 """
 Evaluation and disturbance testing for trained quadcopter policy.
-Usage: python evaluate.py --sim_device cuda:0 --graphics_device_id -1 [--ckpt checkpoints/ppo_final.pt] [--headless]
+Usage: python evaluate.py --sim_device cuda:0 --graphics_device_id -1 [--ckpt checkpoints/ppo_final.pt] [--headless] [--record]
 """
 
 import os
 import time
-from isaacgym import gymutil
+from isaacgym import gymutil, gymapi
 
-from quadcopter_hover import (
+from quadcopter_hover_urdf import (
     QuadcopterEnv, NUM_ENVS, OBS_DIM, ACT_DIM, TARGET_POS,
     DISTURB_FORCE, DISTURB_DURATION, HOVER_THRESHOLD,
 )
@@ -16,6 +16,9 @@ import torch
 import numpy as np
 
 SIM_DT = 1.0 / 60.0
+VIDEO_FPS = 30
+VIDEO_WIDTH = 1280
+VIDEO_HEIGHT = 720
 
 
 def compute_metrics(positions, target):
@@ -26,6 +29,54 @@ def compute_metrics(positions, target):
         "max_error": np.max(errors),
         "hover_rate": np.mean(errors < HOVER_THRESHOLD),
     }
+
+
+def record_hover(env, agent, output_path, duration=10.0):
+    """Record hover demonstration video using Isaac Gym camera sensor."""
+    cam_props = gymapi.CameraProperties()
+    cam_props.width = VIDEO_WIDTH
+    cam_props.height = VIDEO_HEIGHT
+    cam_handle = env.gym.create_camera_sensor(env.envs[0], cam_props)
+    env.gym.set_camera_location(
+        cam_handle, env.envs[0],
+        gymapi.Vec3(3.0, 3.0, 3.0),
+        gymapi.Vec3(0.0, 0.0, 2.0),
+    )
+    env.gym.simulate(env.sim)
+    env.gym.fetch_results(env.sim, True)
+
+    num_frames = int(duration * VIDEO_FPS)
+    steps_per_frame = max(1, int((1.0 / VIDEO_FPS) / SIM_DT))
+
+    import imageio
+    frames = []
+    obs = env.reset()
+
+    print("Recording {} frames at {} fps ({:.1f}s)...".format(num_frames, VIDEO_FPS, duration))
+
+    for frame_i in range(num_frames):
+        for _ in range(steps_per_frame):
+            with torch.no_grad():
+                actions, _, _ = agent.model.act(obs, deterministic=True)
+            obs, _, _, _ = env.step(actions)
+
+        env.gym.render_all_camera_sensors(env.sim)
+        env.gym.start_access_image_stream(env.sim)
+        img = env.gym.get_camera_image(env.sim, env.envs[0], cam_handle, gymapi.IMAGE_COLOR)
+        env.gym.end_access_image_stream(env.sim)
+
+        if img.size > 0:
+            frame = img.reshape(VIDEO_HEIGHT, VIDEO_WIDTH, 4)[:, :, :3]
+            frames.append(frame)
+
+        if (frame_i + 1) % 50 == 0:
+            print("  {} / {} frames".format(frame_i + 1, num_frames))
+
+    if frames:
+        imageio.mimwrite(output_path, frames, fps=VIDEO_FPS, quality=8)
+        print("Video saved: {}".format(output_path))
+    else:
+        print("Warning: no frames captured. Try running without headless mode.")
 
 
 def evaluate(ckpt_path, headless=True):
@@ -44,9 +95,9 @@ def evaluate(ckpt_path, headless=True):
 
     device = args.sim_device if "cuda" in str(args.sim_device) else "cpu"
     ppo_config = {
-        "lr": 3e-4, "gamma": 0.99, "lam": 0.95,
-        "clip_param": 0.2, "value_coef": 0.5, "entropy_coef": 0.01,
-        "max_grad_norm": 1.0, "num_epochs": 5, "batch_size": 256,
+        "lr": 1e-4, "gamma": 0.99, "lam": 0.95,
+        "clip_param": 0.2, "value_coef": 0.5, "entropy_coef": 0.02,
+        "max_grad_norm": 1.0, "num_epochs": 5, "batch_size": 2048,
     }
     agent = PPO(OBS_DIM, ACT_DIM, ppo_config, device)
     agent.load(ckpt_path)
@@ -179,6 +230,10 @@ if __name__ == "__main__":
                         help="Path to checkpoint")
     parser.add_argument("--headless", action="store_true", default=True,
                         help="Run without graphics")
+    parser.add_argument("--record", action="store_true", default=False,
+                        help="Record hover demonstration video")
+    parser.add_argument("--output", type=str, default="videos/hover_demo.mp4",
+                        help="Output video path")
     args_extra, unknown = parser.parse_known_args()
 
     if not os.path.exists(args_extra.ckpt):
@@ -186,4 +241,20 @@ if __name__ == "__main__":
         print("Run train.py first, or specify with --ckpt <path>")
         exit(1)
 
-    evaluate(args_extra.ckpt, headless=args_extra.headless)
+    if args_extra.record:
+        args = gymutil.parse_arguments(description="Quadcopter Video Recording", headless=False)
+        if args.sim_device == "cpu":
+            args.sim_device = "cuda:0"
+        env = QuadcopterEnv(args)
+        device = args.sim_device if "cuda" in str(args.sim_device) else "cpu"
+        ppo_config = {
+            "lr": 1e-4, "gamma": 0.99, "lam": 0.95,
+            "clip_param": 0.2, "value_coef": 0.5, "entropy_coef": 0.02,
+            "max_grad_norm": 1.0, "num_epochs": 5, "batch_size": 2048,
+        }
+        agent = PPO(OBS_DIM, ACT_DIM, ppo_config, device)
+        agent.load(args_extra.ckpt)
+        os.makedirs(os.path.dirname(args_extra.output) or ".", exist_ok=True)
+        record_hover(env, agent, args_extra.output, duration=10.0)
+    else:
+        evaluate(args_extra.ckpt, headless=args_extra.headless)

@@ -8,24 +8,24 @@ import time
 from datetime import datetime
 
 from isaacgym import gymutil
-from quadcopter_hover import QuadcopterEnv, NUM_ENVS, OBS_DIM, ACT_DIM
+from quadcopter_hover_urdf import QuadcopterEnv, NUM_ENVS, OBS_DIM, ACT_DIM
 from ppo_agent import PPO, RolloutBuffer
 import torch
 import numpy as np
 
 CONFIG = {
-    "lr": 3e-4,
+    "lr": 1e-4,
     "gamma": 0.99,
     "lam": 0.95,
     "clip_param": 0.2,
     "value_coef": 0.5,
-    "entropy_coef": 0.01,
+    "entropy_coef": 0.02,
     "max_grad_norm": 1.0,
     "num_epochs": 5,
-    "batch_size": 256,
-    "num_steps": 16,
-    "total_iterations": 1000,
-    "save_interval": 100,
+    "batch_size": 2048,
+    "num_steps": 32,
+    "total_iterations": 5000,
+    "save_interval": 500,
     "log_interval": 10,
     "num_envs": NUM_ENVS,
     "obs_dim": OBS_DIM,

@@ -17,14 +17,18 @@
 
 | 文件 | 用途 |
 |------|------|
-| `quadcopter_hover.py` | Isaac Gym 环境 —— 仿真、智能体、物理、奖励 |
+| `quadcopter_hover.py` | Isaac Gym 环境（程序化几何体、力控） |
+| `quadcopter_hover_urdf.py` | Isaac Gym 环境（Crazyflie URDF、速度控） |
 | `ppo_agent.py` | 独立 PPO 实现（Actor-Critic + RolloutBuffer） |
 | `train.py` | 训练脚本 —— rollout 收集、PPO 更新、日志、checkpoint |
-| `evaluate.py` | 评估脚本 —— 悬停精度、抗扰动恢复、鲁棒性测试 |
+| `train_rlgames.py` | 训练脚本 —— rl_games 官方 PPO 训练器 |
+| `evaluate.py` | 评估脚本 —— 悬停精度、抗扰动恢复、鲁棒性测试、视频录制 |
 | `test_gym.py` | 最小化冒烟测试，验证 Isaac Gym 安装是否正常 |
 | `requirements.txt` | Python 依赖清单 |
-| `cfg/task/QuadcopterHover.yaml` | Isaac Gym 任务格式配置 |
-| `tasks/quadcopter_hover.py` | 基于 VecTask 基类的另一种环境实现 |
+| `assets/crazyflie.urdf` | Crazyflie 2.1 风格四旋翼 URDF 模型 |
+| `cfg/task/QuadcopterHover.yaml` | 任务格式配置（VecTask） |
+| `cfg/train/QuadcopterHoverPPO.yaml` | rl_games PPO 训练配置 |
+| `tasks/quadcopter_hover.py` | 基于 VecTask 基类的环境实现 |
 
 ## 环境要求
 
@@ -73,7 +77,7 @@ python evaluate.py --sim_device cuda:0 --graphics_device_id -1 --ckpt checkpoint
 |-----------|---------|-------------|
 | `NUM_ENVS` | 64 | 并行环境数量 |
 | `TARGET_POS` | (0, 0, 2) | 悬停目标位置（米） |
-| `MAX_THRUST` | 5.0 N | 单旋翼最大推力 |
+| `MAX_THRUST` | 0.2 N | 单旋翼最大推力（Crazyflie 级别） |
 | `DISTURB_FORCE` | 20.0 N | 扰动力大小 |
 | `HOVER_THRESHOLD` | 0.15 m | 判定为"悬停中"的距离阈值 |
 | `total_iterations` | 1000 | PPO 训练迭代次数 |
@@ -86,48 +90,54 @@ python evaluate.py --sim_device cuda:0 --graphics_device_id -1 --ckpt checkpoint
 ```mermaid
 graph TD
     root[isaac-quadrotor-hover]
-    root --> qh[quadcopter_hover.py<br/>主环境]
+    root --> qh[quadcopter_hover.py<br/>主环境 力控]
+    root --> qhu[quadcopter_hover_urdf.py<br/>URDF环境 速度控]
     root --> ppo[ppo_agent.py<br/>PPO 算法]
     root --> train[train.py<br/>训练脚本]
-    root --> eval[evaluate.py<br/>评估脚本]
+    root --> train_rl[train_rlgames.py<br/>rl_games 训练]
+    root --> eval[evaluate.py<br/>评估 + 视频录制]
     root --> test[test_gym.py<br/>Gym 冒烟测试]
     root --> req[requirements.txt<br/>Python 依赖]
     root --> cfg[cfg/]
     cfg --> task[task/]
     task --> yaml[QuadcopterHover.yaml]
+    cfg --> train_cfg[train/]
+    train_cfg --> ppo_yaml[QuadcopterHoverPPO.yaml]
     root --> tasks[tasks/]
     tasks --> vec[quadcopter_hover.py<br/>VecTask 变体]
-    root --> assets[assets/<br/>资产目录]
+    root --> assets[assets/]
+    assets --> urdf[crazyflie.urdf]
 ```
 
-## 当前状态（截至 2026-06-06）
+## 训练结果（2026-06-12，Seetacloud RTX 4090）
 
-### 已完成
-- Isaac Gym 仿真环境搭建完毕，程序化几何体构建四旋翼模型
-- 64 并行环境，GPU PhysX 加速
-- PPO 算法完整实现（GAE、clip、value clipping）
-- 训练流程：自动日志（CSV）、定期 checkpoint
-- 评估流程：悬停精度、定向扰动恢复、随机扰动鲁棒性三项测试
-- 奖励函数已完善（位置 + 姿态 + 速度 + 角速度 + 动作惩罚 + 悬停奖励）
-- **已于 AutoDL（RTX 4090, 24GB）完成首轮训练**：1000 次迭代，FPS ≈ 3000
+### URDF 力控训练（成功）
 
-### Bug 修复（2026-06-06）
-1. **`train.py` 导入顺序** — `import torch` 必须在 `import isaacgym` 之后
-2. **`ppo_agent.py` approx_kl 张量尺寸不匹配** — `old_log_probs` (全量 N×T) 与 `new_log_probs` (单 batch) 维度不一致，改为全量评估
-3. **`evaluate.py` 导入顺序** — 同 train.py
-4. **`evaluate.py` PPO 初始化缺配置** — 空 `{}` 导致 `KeyError: 'lr'`，已补全
+Crazyflie URDF 模型 + 刚性体力控，1089 轮完成收敛。
 
-### 首轮训练结果
-- 1000 次迭代后 reward 未收敛（维持在 -52），悬停 RMSE ≈ 0.95m，悬停成功率 0%
-- 模型未学会有效悬停，需调参和更多训练轮数
+| 指标 | 初始 | 最终 | 最佳 |
+|------|------|------|------|
+| Reward | 0 | 107,823 | 159,277 |
+| Episode Length | 0 | 12,321 步 (123s) | 17,798 步 (178s) |
+| Entropy | 3.7 | 7.3 | — |
+| FPS | 1,933 | 35,070 | — |
 
-### 待完成
-1. **调参 & 加长训练** — 建议 `total_iterations` 5000-10000、降低 `lr`、增大 `num_envs`（4090 可到 1024+）
-2. **替换真实 URDF** — 程序化几何体 → Crazyflie 等真实模型
-3. **接入 rl_games** — 使用 `tasks/quadcopter_hover.py` 配合官方 PPO 训练器
-4. **域随机化** — 质量/惯量/推力系数，为 Sim2Real 做准备
-5. **修复 evaluate.py 扰动测试** — `gymapi.CoordinateSpace.WORLD_SPACE` 在 Preview 4 中 API 名不同
-6. **录制视频**
+- **训练时间**：~25 分钟（1089 轮 × 32 步 × 1024 环境 / 35k FPS）
+- **模型**：`checkpoints/ppo_iter_1000.pt` → 复制为 `checkpoints/ppo_final.pt`
+- **关键突破**：第 386 轮 reward 仍为负（-484），第 758 轮跃升至 +681，之后持续收敛
+
+### 技术栈
+- **环境**：Isaac Gym Preview 4 + PhysX GPU 管线
+- **模型**：Crazyflie 2.1 风格 URDF（base_link + 4 旋翼，5 rigid bodies）
+- **控制**：力控模式 —— 直接对旋翼 rigid body 施加 Z 轴推力（0~0.2 N / 旋翼）
+- **算法**：自实现 PPO（GAE、value clipping、entropy bonus）
+- **域随机化**：质量 ±20%、推力系数 ±15%
+
+### 已知问题与教训
+- **DOF 速度控制不适用**：PhysX 刚体引擎不模拟螺旋桨空气动力学，URDF revolute 关节旋转不产生推力。必须使用力控
+- **`set_rigid_body_state_tensor` 不可用**：此版本 Isaac Gym 的 GPU PhysX 管线未实现该 API，需用 `set_actor_root_state_tensor`
+- **`acquire_actor_rigid_body_properties_tensor` 不存在**：需使用 per-actor `get_actor_rigid_body_properties` / `set_actor_rigid_body_properties`
+- **nohup 输出缓冲**：需 `python -u` 标志关闭缓冲
 
 ### 服务器环境参考
 - 平台：AutoDL，PyTorch 2.0.0 + Python 3.8 + CUDA 11.8，RTX 4090 (24GB)
